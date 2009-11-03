@@ -80,7 +80,7 @@ class MethodContext(object):
 class Module(MethodContext):
     name = 'top_level'
     def __init__(self, tree, name):
-        dump_node(tree)
+        #dump_node(tree)
         self.doc = get_doc(tree)
         self.name = name
         self.type = None
@@ -273,11 +273,12 @@ class Function(object):
         self.classname = self.owner.name
         self.cname = "%s_%s" % (owner.name, self.name)
 
-        dump_node(node)
+        #dump_node(node)
         self.args = [Argument(x) for x in node.args.args]
         if isinstance(self.owner, Class):
             if self.args[0].pyname != 'self':
-                log("popping argument 0, but it isn't 'self', line %s" % node.lineno)
+                log("First argument in method '%s.%s' isn't 'self', line %s"
+                    % (self.owner.name, self.name, node.lineno))
             del self.args[0]
 
         self.returns = []
@@ -295,7 +296,7 @@ class Function(object):
         skippedlines = set()
         for fnode in node.body:
             if isinstance(fnode, _ast.Return):
-                log('found a Return!')
+                #log('found a Return!')
                 if isinstance(fnode.value, _ast.Tuple):
                     retlist = [Argument(x) for x in fnode.value.elts]
                 elif fnode.value.id != 'None':
@@ -307,18 +308,15 @@ class Function(object):
                 self.returns.append(retlist)
                 unskippedlines.add(fnode.lineno)
             else:
-                log(fnode, fnode.lineno)
                 skippedlines.add(fnode.lineno)
 
         self.skippedlines = [pylines[x - 1] for x in sorted(skippedlines - unskippedlines)]
-        log(self.skippedlines, skippedlines, unskippedlines)
+        #log(self.skippedlines, skippedlines, unskippedlines, cvars)
 
-        log (cvars)
         if not self.returns:
             self.returns = [[]]
         self.bindinfo = (self.name, self.cname, self.methtype, '"\\\n    "'.join(self.doc))
         self.cvars = [v for k, v in sorted(cvars.items())]
-        log(self.cvars)
 
     def write_decl(self):
         # does this ever vary?
@@ -370,7 +368,6 @@ class Function(object):
         if self.returns == [[]]:
             write('    return Py_BuildValue("");\n')
         else:
-            #log(self.returns)
             for rset in self.returns:
                 write('    return Py_BuildValue("%s", %s);\n' %
                       (''.join(x.ftype for x in rset), ', '.join(x.cname for x in rset)))
