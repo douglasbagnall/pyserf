@@ -56,6 +56,8 @@ def get_doc(node):
             reformatted.extend(textwrap.wrap(line, 70))
         elif line:
             reformatted.append(line)
+    #delete the doc node, so it doesn't show in ignored function body.
+    del node.body[0]
     return reformatted
 
 
