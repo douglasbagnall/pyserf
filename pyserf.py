@@ -31,16 +31,16 @@ def log(*args):
 def dump_node(node, recurse=False):
     log(ast.dump(node, annotate_fields=True, include_attributes=True))
 
-def perhaps(write, string, level=2):
+def perhaps_write(string, level=2):
     if level <= COMMENTS:
         write(string)
 
 def title(s):
-    perhaps(write, '\n', 1)
+    perhaps_write('\n', 1)
     hr = '/%s/\n' % ('*' * 70)
-    perhaps(write, hr, 2)
-    perhaps(write, '/* %-66s */\n' % s, 1)
-    perhaps(write, hr, 2)
+    perhaps_write(hr, 2)
+    perhaps_write('/* %-66s */\n' % s, 1)
+    perhaps_write(hr, 2)
 
 
 def get_doc(node):
@@ -68,7 +68,7 @@ def cdoc_format(doc):
 
 class MethodContext(object):
     def write_meth_bindings(self):
-        perhaps(write, "/* bindings for %s */\n" % self.name)
+        perhaps_write("/* bindings for %s */\n" % self.name)
         write("static PyMethodDef %s[] = {\n" % self.bindings_name)
         for meth in self.methods:
             if meth.name not in self.magic_methods:
@@ -148,7 +148,7 @@ class Class(MethodContext):
 
     def write_object_struct(self):
         write("typedef struct {\n    PyObject_HEAD\n")
-        perhaps(write, "    /* XXX define %s.%s objects here. */\n" % (self.module, self.name,), 1)
+        perhaps_write("    /* XXX define %s.%s objects here. */\n" % (self.module, self.name,), 1)
         write("\n} %s;\n\n" % self.obj)
 
     type_struct_elements = (
@@ -325,12 +325,11 @@ class Function(object):
         write('static PyObject *%s (PyObject*, PyObject*);\n' %(self.cname))
 
     def write(self):
-        perhaps(write, "/* %s (binds to %s.%s) */\n" %(self.cname,
-                                                       self.classname or '<module %s>' % self.module,
-                                                       self.name), 2)
+        perhaps_write("/* %s (binds to %s.%s) */\n" %(self.cname,
+                                                      self.classname or '<module %s>' % self.module,
+                                                      self.name), 2)
 
-
-        perhaps(write, cdoc_format(self.doc), 1)
+        perhaps_write(cdoc_format(self.doc), 1)
 
         if self.methtype == 'METH_O':
             write('\nstatic PyObject *\n%s (PyObject *self, PyObject *%s)\n{\n' %(self.cname, self.args[0]))
@@ -355,16 +354,16 @@ class Function(object):
                    ', &'.join(x.cname for x in self.args)))
             write('        return NULL;\n')
         elif self.methtype == 'METH_O':
-            perhaps(write, '    /*no arguments to parse (using METH_O) */')
+            perhaps_write('    /*no arguments to parse (using METH_O) */')
         else:
-            perhaps(write, '    /*no arguments to parse (using METH_NOARGS) */')
+            perhaps_write('    /*no arguments to parse (using METH_NOARGS) */')
 
         if self.skippedlines:
-            perhaps(write, '\n    /*********** ignoring these lines of python ***********/\n')
+            perhaps_write('\n    /***  ignoring these lines of python  ***/\n')
             for line in self.skippedlines:
                 write('    /* %s */\n' % line.rstrip())
-            perhaps(write, '    /******************************************************/\n')
-        perhaps(write, '\n    /* XXX your code here */\n\n', 1)
+            perhaps_write('    /***  finished ignoring  ***/\n')
+        perhaps_write('\n    /* XXX your code here */\n\n', 1)
         if DEBUG:
             write('    /*debug*/\n    printf("in %s\\n\\n");\n' % self.cname)
 
