@@ -9,7 +9,6 @@ class bar:
     def baz(self, int_c):
         "method documentation"
         print "line 1 to skip"
-        f("c code  to skip")
         print "line 2 to skip"
         return int_c
 

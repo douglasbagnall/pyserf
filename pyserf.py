@@ -400,7 +400,6 @@ def compile2ast(filepath):
     f.close()
     return s, compile(s, os.path.basename(filepath), 'exec', ast.PyCF_ONLY_AST)
 
-
 def climb(tree, parent=None, context=None):
     if isinstance(tree, _ast.ClassDef):
         klass = Class(tree, context)
@@ -489,7 +488,7 @@ def write_setup_py(modname, cfilename):
     f.write('setup(name="%s",\n'
             '      version="1.0",\n'
             '      ext_modules=[Extension("%s", ["%s"])])\n'
-            % (modname, modname, outfilename)
+            % (modname, modname, cfilename)
             )
     f.close()
 
