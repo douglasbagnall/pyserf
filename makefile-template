@@ -1,0 +1,39 @@
+BASENAME = %(modulename)s
+
+LIBNAME = lib$(BASENAME).a
+
+CFLAGS =  -O3 -pipe -ffast-math -std=gnu99 -Wall -fomit-frame-pointer  -D_GNU_SOURCE
+
+RANLIB	= true
+PY_VERSION = $(shell python -c 'import sys; sys.stdout.write(sys.version[:3])')
+PYTHON = python$(PY_VERSION)
+
+PY_CFLAGS =    -Wall -pthread -fno-strict-aliasing -DNDEBUG -Wstrict-prototypes -fPIC -I/usr/include/$(PYTHON)
+
+#SRCS	= %(modulename)s.c
+SRCS	= %(cfilename)s
+OBJS	= $(SRCS:.c=.o)
+
+.SUFFIXES: .c .o
+
+.PHONY: all clean
+
+.c.o:
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $(CPPFLAGS2) -o $@ $<
+
+$(LIBNAME):	$(OBJS)
+	$(AR) r $(LIBNAME) $(OBJS)
+	$(RANLIB) $(LIBNAME)
+
+all:	$(LIBNAME)  $(INCLUDES)
+	$(CC) $(PY_CFLAGS)  $(CFLAGS)  $(CPPFLAGS2) -c $(BASENAME).c -o $(BASENAME).o
+	$(CC) -pthread -shared -Wl,-O1 $(BASENAME).o  -o $(BASENAME).so
+
+install: all
+	mv semanticCore.so /usr/local/lib/$(PYTHON)/dist-packages/
+
+clean:
+	rm -f *.o *.a *~ *.so
+
+debug:
+	echo $(BASENAME) ($SRCS) $(LIBNAME)  $(INCLUDES) 
