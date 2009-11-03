@@ -65,11 +65,6 @@ def cdoc_format(doc):
 
 
 class MethodContext(object):
-    def __init__(self):
-        self.methods = []
-    def addchild(self, name, child):
-        self.methods.append(child)
-
     def write_meth_bindings(self):
         perhaps(write, "/* bindings for %s */\n" % self.name)
         write("static PyMethodDef %s[] = {\n" % self.bindings_name)
@@ -99,20 +94,12 @@ class Module(MethodContext):
         else:
             self.classes.append(child)
 
-    def write_init(self):
-        warn("TopLevel.write_init: go away!")
-    def write_object_struct(self):
-        warn("TopLevel.write_init: go away!")
-    def write_type_struct(self):
-        warn("TopLevel.type_struct: go away!")
-
 
 class Class(MethodContext):
     def __init__(self, node, context):
         self.doc = get_doc(node)
         self.name = node.name
         self.module = context.name
-        self.children = {}
         self.type = "%s_%s_type" % (self.module, self.name,)
         self.obj = "%s_%s_object" % (self.module, self.name,)
         self.methods = []
@@ -575,24 +562,22 @@ def main():
         else:
             ofn = fn + '.c'
 
-        if (os.path.exists(ofn) and not OVERWRITE and
-            raw_input("%s exists, overwrite? [y/N]" % ofn).lower() != 'y'):
-            print >>sys.stderr, ("won't overwrite %s, stopping.\n"
-                                 "use -f to force" % ofn)
-            sys.exit(1)
         try:
             output = open_if_allowed(ofn)
         except IOError, e:
             print >>sys.stderr, e
             print >>sys.stderr, "use -f to force yes to overwrite questions."
-
+            sys.exit(1)
     global write
     write = output.write
 
-    x = py2c(fn, output)
-    x.go()
-    if options.setup_py:
-        x.write_setup_py()
+    x = py2c(fn)
+
+    if output is not sys.stdout:
+        if options.setup_py:
+            write_setup_py(x.name, ofn)
+        if options.makefile:
+            write_makefile(x.name, ofn)
 
 
 if __name__ == '__main__':
