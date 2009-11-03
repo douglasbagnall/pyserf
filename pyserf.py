@@ -10,7 +10,9 @@ import textwrap
 import linecache
 from pprint import pprint, pformat
 
-MAKEFILE_TEMPLATE = 'makefile-template'
+HERE = os.path.dirname(sys.argv[0])
+#print HERE
+MAKEFILE_TEMPLATE = os.path.join(HERE, 'makefile-template')
 
 DEBUG = 0
 COMMENTS = 2 # 1 -> few, 3 -> many
@@ -537,7 +539,7 @@ def main():
     parser.add_option("-s", "--setup-py", dest="setup_py", default=False,
                       help="generate setup.py stub", action="store_true")
 
-    parser.add_option("-m", "--makefile", dest="mskrfile", default=False,
+    parser.add_option("-m", "--makefile", dest="makefile", default=False,
                       help="generate makefile", action="store_true")
 
     parser.add_option("-f", "--force", dest="force", default=False,
