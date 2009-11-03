@@ -10,9 +10,12 @@ import textwrap
 import linecache
 from pprint import pprint, pformat
 
+MAKEFILE_TEMPLATE = 'makefile-template'
+
 DEBUG = 0
 COMMENTS = 2 # 1 -> few, 3 -> many
 CONCAT_DECLS = 0
+OVERWRITE = False
 write = sys.stdout.write
 
 HERE = os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -492,19 +495,41 @@ def py2c(fn, output=sys.stdout):
     write('\n}\n\n')
     return module
 
+def open_if_allowed(filename):
+    if (os.path.exists(filename) and not OVERWRITE and
+        raw_input("%s exists, overwrite? [y/N]" % filename).strip() not in 'Yy'):
+        raise IOError("Can't overwrite %s" % filename)
+    return open(filename, 'w')
 
-def write_setup_py(modname, cfilename, overwrite):
+def write_setup_py(modname, cfilename):
     """Writes a distutils setup script for compilation"""
-    if (os.path.exists("setup.py") and not overwrite and
-        raw_input("setup.py exists, overwrite? [y/N]") in 'Yy'):
+    #XXX not recently  tested.
+    try:
+        f = open_if_allowed("setup.py")
+    except IOError, e:
+        print >>sys.stderr, e
         return
-    f = open("setup.py", "w")
     f.write("from distutils.core import setup, Extension\n")
     f.write('setup(name="%s",\n'
             '      version="1.0",\n'
             '      ext_modules=[Extension("%s", ["%s"])])\n'
             % (modname, modname, outfilename)
             )
+    f.close()
+
+def write_makefile(modname, cfilename):
+    """Write a Makefile for compilation"""
+    try:
+        f = open_if_allowed("Makefile")
+    except IOError, e:
+        print >>sys.stderr, e
+        return
+    f2 = open(MAKEFILE_TEMPLATE)
+    makefile = f2.read()
+    f2.close()
+    f.write(makefile % {'modulename': modname,
+                        'cfilename': cfilename})
+
     f.close()
 
 
@@ -528,6 +553,9 @@ def main():
 
     parser.add_option("-s", "--setup-py", dest="setup_py", default=False,
                       help="generate setup.py stub", action="store_true")
+
+    parser.add_option("-m", "--makefile", dest="mskrfile", default=False,
+                      help="generate makefile", action="store_true")
 
     parser.add_option("-f", "--force", dest="force", default=False,
                       help="force overwriting of files", action="store_true")
