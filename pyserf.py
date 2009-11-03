@@ -263,9 +263,6 @@ class Argument(object):
 
 
 class Function(object):
-    def parseNode(self, node):
-        pass
-
     def __init__(self, node, owner):
         self.doc = get_doc(node)
         self.name = node.name
@@ -386,9 +383,6 @@ class BlankMethod:
         self.code = ''
         self.type = 'static PyObject *'
 
-    def parseNode(self):
-        pass
-
     def write_decl(self):
         write('%s %s (PyObject*, PyObject*);\n' %(self.type, self.cname))
 
@@ -413,7 +407,6 @@ def climb(tree, parent=None, context=None):
 
     elif isinstance(tree, _ast.FunctionDef):
         fn = Function(tree, context)
-        fn.parseNode(tree)
         context.addchild(tree.name, fn)
         return context #no further descent -- ignore nested functions
 
