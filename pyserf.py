@@ -21,7 +21,7 @@ def pathto(x):
 
 def log(*args):
     for x in args:
-        print >> sys.stdout, x
+        print >> sys.stderr, x
 
 def dump_node(node, recurse=False):
     log(ast.dump(node, annotate_fields=True, include_attributes=True))
@@ -37,22 +37,29 @@ def title(s):
     perhaps(write, '/* %-66s */\n' % s, 1)
     perhaps(write, hr, 2)
 
-def raw_doc(node):
-    try:
-        #node->first_expr->str_obj->string_value
-        return node.body[0].value.s
-    except (LookupError, AttributeError), e:
-        return ''
 
 def get_doc(node):
-    lines = [x.strip() for x in raw_doc(node).split('\n')]
+    try:
+        #node->first_expr->str_obj->string_value
+        raw_doc = node.body[0].value.s
+    except (LookupError, AttributeError), e:
+        return []
+    lines = [x.strip() for x in raw_doc.split('\n')]
     reformatted = []
     for line in lines:
         if len(line) > 70:
             reformatted.extend(textwrap.wrap(line, 70))
-        else:
+        elif line:
             reformatted.append(line)
     return reformatted
+
+
+def pydoc_format(doc):
+    return '\\\n    '.join('"%s"' % x for x in doc)
+
+def cdoc_format(doc):
+    return ''.join('/* %-70s */\n' % x for x in doc)
+
 
 class MethodContext(object):
     def __init__(self):
@@ -73,8 +80,10 @@ class MethodContext(object):
 
 class Module(MethodContext):
     name = 'top_level'
-    def __init__(self, tree):
+    def __init__(self, tree, name):
+        dump_node(tree)
         self.doc = get_doc(tree)
+        self.name = name
         self.type = None
         self.obj = None
         self.methods = []
@@ -102,8 +111,8 @@ class Class(MethodContext):
         self.name = node.name
         self.module = context.name
         self.children = {}
-        self.type = "%s_type" % (self.name,)
-        self.obj = "%s_object" % (self.name,)
+        self.type = "%s_%s_type" % (self.module, self.name,)
+        self.obj = "%s_%s_object" % (self.module, self.name,)
         self.methods = []
 
         self.magic_methods = {'__new__': 0,
@@ -150,7 +159,7 @@ class Class(MethodContext):
 
     def write_object_struct(self, fh):
         fh.write("typedef struct {\n    PyObject_HEAD\n")
-        perhaps(fh.write, "    /* XXX define %s objects here. */\n" % (self.name,), 1)
+        perhaps(fh.write, "    /* XXX define %s.%s objects here. */\n" % (self.module, self.name,), 1)
         fh.write("\n} %s;\n\n" % self.obj)
 
     type_struct_elements = (
@@ -201,6 +210,7 @@ class Class(MethodContext):
         write = fh.write
         write("static PyTypeObject %s = {\n    PyObject_HEAD_INIT(NULL)\n" % self.type)
         d = self.__dict__.copy()
+        d['doc'] = pydoc_format(self.doc)
         d['py_fullname'] = '%s.%s' % (self.module, self.name)
         d.update(self.magic_methods)
         for t, slot, default in self.type_struct_elements:
@@ -220,152 +230,11 @@ class Class(MethodContext):
         write('};\n')
 
 
-
-
-class Function(object):
-    def __init__(self, node, owner):
-        self.doc = get_doc(node)
-        self.name = node.name
-        self.owner = owner
-        self.classname = self.owner.name
-        self.skippedlines = []
-        self.cname = "%s_%s" % (owner.name, self.name)
-
-    def parseNode(self, node):
-        dump_node(node)
-        pprint(node.args)
-        pprint(node.args.args)
-        argnames = [x.id for x in node.args.args]
-        pprint(argnames)
-        argtypes = []
-        if isinstance(self.owner, Class):
-            if argnames[0] != 'self':
-                warn("popped argument 0, but it wasn't 'self', line %s" % node.lineno)
-
-        self.ftypes, self.args, self.cvars, self.returns = [], [], [], []
-
-        #find method type -- if 1 object arg, use METH_O
-        for a in argnames:
-            argtypes.append(self.find_c_type(a))
-        for v, tf, t in argtypes:
-            self.args.append(v)
-            self.ftypes.append(tf)
-            self.cvars.append((t, v))
-
-        arity = len(argnames)
-        log(arity)
-        if arity == 0:
-            self.methtype = 'METH_NOARGS'
-        elif arity == 1 and self.ftypes == ['O']:
-            self.methtype = 'METH_O'
-            self.cvars = []    #don't redeclare object
-        else:
-            self.methtype = 'METH_VARARGS'
-
-        for fnode in node.body:
-            dump_node(fnode)
-            if repr(fnode).startswith('Return'):
-                values = []
-                formats = []
-                retlist = fnode.value.asList()
-                if retlist == ('None',):
-                    self.returns = [([], [])]
-                    continue
-                for retval in retlist:
-                    if type(retval) is tuple:
-                        retval = retval[0]
-                    v, tf, t = self.find_c_type(retval)
-                    if (t, v) not in self.cvars:
-                        self.cvars.append((t, v))
-                    values.append(v)
-                    formats.append(tf)
-                self.returns.append((formats, values))
-            else:
-                print fnode, fnode.lineno
-                self.skippedlines.append(pylines[fnode.lineno])
-
-
-        if not self.returns:
-            self.returns = [([], [])]
-
-        #self.doc = get_doc(node)
-        #log(self.doc)
-        self.bindinfo = (self.name, self.cname, self.methtype, '"\\\n    "'.join(self.doc))
-        self.cvars.sort()
-
-    def write_decl(self, fh):
-        # does this ever vary?
-        fh.write('static PyObject *%s (PyObject*, PyObject*);\n' %(self.cname))
-
-    def write(self, fh):
-        write = fh.write
-        perhaps(write, "/* %s (binds to %s.%s) */\n" %(self.cname,
-                                                       self.classname or '<module %s>' % self.module,
-                                                       self.name), 2)
-
-
-        perhaps(write, '/* %s  */\n' % self.doc, 1)
-
-        if self.methtype == 'METH_O':
-            write('\nstatic PyObject *\n%s (PyObject *self, PyObject *%s)\n{\n' %(self.cname, self.args[0]))
-        else:
-            write('\nstatic PyObject *\n%s (PyObject *self, PyObject *args)\n{\n' %(self.cname))
-        prev = None
-        for t, v in self.cvars:
-            if not CONCAT_DECLS:
-                write("    %s%s;\n" % (t, v))
-            elif t == prev:
-                write(", %s" % v)
-            elif prev is not None:
-                write(";\n    %s%s" % (t, v))
-            else:
-                write("    %s%s" % (t, v))
-            prev = t
-        if self.cvars and CONCAT_DECLS:
-            write(";\n\n")
-        if self.methtype == 'METH_VARARGS':
-            write('    if (!PyArg_ParseTuple(args, "%s", &%s))\n' %(''.join(self.ftypes),
-                                                          ', &'.join(self.args)))
-            write('        return NULL;\n')
-        elif self.methtype == 'METH_O':
-            perhaps(write, '    /*no arguments to parse (using METH_O) */')
-        else:
-            perhaps(write, '    /*no arguments to parse (using METH_NOARGS) */')
-
-        if self.skippedlines:
-            perhaps(write, '\n    /*********** ignoring these lines of python ***********/\n')
-            for line in self.skippedlines:
-                write('    /* %s */\n' % line.rstrip())
-            perhaps(write, '    /******************************************************/\n')
-        perhaps(write, '\n    /* XXX your code here */\n\n', 1)
-        if DEBUG:
-            write('    /*debug*/\n    printf("in %s\\n\\n");\n' % self.cname)
-
-        if self.returns == [([], [])]:
-            write('    return Py_BuildValue("");\n')
-        else:
-            #log(self.returns)
-            for tf, v in self.returns:
-                #log(*((str(x), dir(x)) for x in v))
-                log(*((x, getattr(x, 'name', 'XXXX')) for x in v))
-                write('    return Py_BuildValue("%s", %s);\n' % (''.join(tf),
-                                                                 ', '.join(str(x) for x in v)))
-        write('}\n\n')
-
-
-
-    def find_c_type(self, pyarg):
-        if '_' not in pyarg: #assume object
-            return (pyarg,) + self.type_info['object']
-        for splitter in ('____', '___', '__', '_'):
-            if splitter in pyarg:
-                t, arg = pyarg.split(splitter, 1)
-                if t in self.type_info:
-                    return (arg,) + self.type_info[t]
-                else:#assume object
-                    return (pyarg,) + self.type_info['object']
-
-        raise ValueError("can't parse the argument '%s'" % pyarg)
+class Argument(object):
+    """Parse an _ast.Name object"""
+    def __init__(self, source):
+        self.pyname = source.id
+        self.cname, self.ftype, self.ctype = self.find_c_type(self.pyname)
 
     type_info = {
         'int'  : ('i', 'int '),
@@ -382,6 +251,146 @@ class Function(object):
         'floatSeq': ('O', 'PyObject *'),
         'intSeq': ('O', 'PyObject *'),
         }
+
+    def find_c_type(self, pyarg):
+        if '_' not in pyarg: #assume object
+            return (pyarg,) + self.type_info['object']
+        for splitter in ('____', '___', '__', '_'):
+            if splitter in pyarg:
+                t, arg = pyarg.split(splitter, 1)
+                if t in self.type_info:
+                    return (arg,) + self.type_info[t]
+                else:#assume object
+                    return (pyarg,) + self.type_info['object']
+
+        raise ValueError("can't parse the argument '%s'" % pyarg)
+
+    def __str__(self):
+        return "<Argument %s %s %s %s>" % (self.ctype, self.ftype,
+                                           self.pyname, self.cname,)
+
+    __repr__ = __str__
+    def __cmp__(self, other):
+        return cmp(repr(self), repr(other))
+
+
+class Function(object):
+    def parseNode(self, node):
+        pass
+
+    def __init__(self, node, owner):
+        self.doc = get_doc(node)
+        self.name = node.name
+        self.owner = owner
+        self.classname = self.owner.name
+        self.cname = "%s_%s" % (owner.name, self.name)
+
+        dump_node(node)
+        self.args = [Argument(x) for x in node.args.args]
+        if isinstance(self.owner, Class):
+            if self.args[0].pyname != 'self':
+                log("popping argument 0, but it isn't 'self', line %s" % node.lineno)
+            del self.args[0]
+
+        self.returns = []
+        cvars = dict(((x.cname, x) for x in self.args))
+
+        #find method type -- if 1 object arg, use METH_O
+        if not self.args:
+            self.methtype = 'METH_NOARGS'
+        elif len(self.args) == 1 and self.args[0].ftype == ['O']:
+            self.methtype = 'METH_O'
+        else:
+            self.methtype = 'METH_VARARGS'
+
+        unskippedlines = set()
+        skippedlines = set()
+        for fnode in node.body:
+            if isinstance(fnode, _ast.Return):
+                log('found a Return!')
+                if isinstance(fnode.value, _ast.Tuple):
+                    retlist = [Argument(x) for x in fnode.value.elts]
+                elif fnode.value.id != 'None':
+                    retlist = [Argument(fnode.value)]
+                else:
+                    self.returns.append([])
+                    continue
+                cvars.update((x.cname, x) for x in retlist)
+                self.returns.append(retlist)
+                unskippedlines.add(fnode.lineno)
+            else:
+                log(fnode, fnode.lineno)
+                skippedlines.add(fnode.lineno)
+
+        self.skippedlines = [pylines[x - 1] for x in sorted(skippedlines - unskippedlines)]
+        log(self.skippedlines, skippedlines, unskippedlines)
+
+        log (cvars)
+        if not self.returns:
+            self.returns = [[]]
+        self.bindinfo = (self.name, self.cname, self.methtype, '"\\\n    "'.join(self.doc))
+        self.cvars = [v for k, v in sorted(cvars.items())]
+        log(self.cvars)
+
+    def write_decl(self, fh):
+        # does this ever vary?
+        fh.write('static PyObject *%s (PyObject*, PyObject*);\n' %(self.cname))
+
+    def write(self, fh):
+        write = fh.write
+        perhaps(write, "/* %s (binds to %s.%s) */\n" %(self.cname,
+                                                       self.classname or '<module %s>' % self.module,
+                                                       self.name), 2)
+
+
+        perhaps(write, cdoc_format(self.doc), 1)
+
+        if self.methtype == 'METH_O':
+            write('\nstatic PyObject *\n%s (PyObject *self, PyObject *%s)\n{\n' %(self.cname, self.args[0]))
+        else:
+            write('\nstatic PyObject *\n%s (PyObject *self, PyObject *args)\n{\n' %(self.cname))
+        prev = None
+        for x in self.cvars:
+            if not CONCAT_DECLS:
+                write("    %s%s;\n" % (x.ctype, x.cname))
+            elif x.ctype == prev:
+                write(", %s" % (x.cname,))
+            elif prev is not None:
+                write(";\n    %s%s" % (x.ctype, x.cname))
+            else:
+                write("    %s%s" % (x.ctype, x.cname))
+            prev = x.ctype
+        if self.cvars and CONCAT_DECLS:
+            write(";\n\n")
+        if self.methtype == 'METH_VARARGS':
+            write('    if (!PyArg_ParseTuple(args, "%s", &%s))\n' %
+                  (''.join(x.ftype for x in self.args),
+                   ', &'.join(x.cname for x in self.args)))
+            write('        return NULL;\n')
+        elif self.methtype == 'METH_O':
+            perhaps(write, '    /*no arguments to parse (using METH_O) */')
+        else:
+            perhaps(write, '    /*no arguments to parse (using METH_NOARGS) */')
+
+        if self.skippedlines:
+            perhaps(write, '\n    /*********** ignoring these lines of python ***********/\n')
+            for line in self.skippedlines:
+                write('    /* %s */\n' % line.rstrip())
+            perhaps(write, '    /******************************************************/\n')
+        perhaps(write, '\n    /* XXX your code here */\n\n', 1)
+        if DEBUG:
+            write('    /*debug*/\n    printf("in %s\\n\\n");\n' % self.cname)
+
+        if self.returns == [[]]:
+            write('    return Py_BuildValue("");\n')
+        else:
+            #log(self.returns)
+            for rset in self.returns:
+                write('    return Py_BuildValue("%s", %s);\n' %
+                      (''.join(x.ftype for x in rset), ', '.join(x.cname for x in rset)))
+        write('}\n\n')
+
+
 
 
 class BlankMethod:
@@ -413,23 +422,13 @@ def compile2ast(filepath):
     return s, compile(s, os.path.basename(filepath), 'exec', ast.PyCF_ONLY_AST)
 
 
-
-
 def climb(tree, parent=None, context=None):
-    if isinstance(tree, _ast.Module):
-        if context is not None:
-            raise RuntimeError('module has module contents?!')
-        context = Module(tree)
-
-    elif isinstance(tree, _ast.ClassDef):
-        print dir(tree)
-        print("class %s in %s" % (tree.name, parent))
+    if isinstance(tree, _ast.ClassDef):
         klass = Class(tree, context)
         context.addchild(tree.name, klass)
         context = klass
 
     elif isinstance(tree, _ast.FunctionDef):
-        print("a function  %s in %s" % (tree.name, parent))
         fn = Function(tree, context)
         fn.parseNode(tree)
         context.addchild(tree.name, fn)
@@ -441,14 +440,14 @@ def climb(tree, parent=None, context=None):
     return context
 
 
-
 def py2c(fn, output=sys.stdout):
     module_string, tree = compile2ast(fn)
+    module_name = os.path.basename(fn).split('.', 1)[0]
     global pylines
     pylines = [x.rstrip() for x in module_string.split('\n')]
-    module = climb(tree)
 
-    pprint (module)
+    module = Module(tree, module_name)
+    climb(tree, context=module)
 
     # parsed, now print
 
@@ -476,16 +475,15 @@ def py2c(fn, output=sys.stdout):
         c.write_type_struct(output)
     title('initialisation.')
 
-    modname = module.name
     # init
     write("#ifndef PyMODINIT_FUNC\n#define PyMODINIT_FUNC void\n#endif\n")
-    write("PyMODINIT_FUNC\ninit%s(void)\n{\n    PyObject* m;\n" % modname)
+    write("PyMODINIT_FUNC\ninit%s(void)\n{\n    PyObject* m;\n" % module.name)
     for c in module.classes:
         c.write_init_1(output)
     write('    m = Py_InitModule3("%s", %s,\n'
-          '        "%s");\n\n' % (modname,
+          '        %s);\n\n' % (module.name,
                                   module.bindings_name,
-                                  c.doc))
+                                  pydoc_format(module.doc)))
     write('    if (m == NULL)\n        return;\n\n')
 
     for c in module.classes:
