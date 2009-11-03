@@ -70,8 +70,7 @@ class MethodContext(object):
     def addchild(self, name, child):
         self.methods.append(child)
 
-    def write_meth_bindings(self, fh):
-        write = fh.write
+    def write_meth_bindings(self):
         perhaps(write, "/* bindings for %s */\n" % self.name)
         write("static PyMethodDef %s[] = {\n" % self.bindings_name)
         for meth in self.methods:
@@ -100,11 +99,11 @@ class Module(MethodContext):
         else:
             self.classes.append(child)
 
-    def write_init(self, fh):
+    def write_init(self):
         warn("TopLevel.write_init: go away!")
-    def write_object_struct(self, fh):
+    def write_object_struct(self):
         warn("TopLevel.write_init: go away!")
-    def write_type_struct(self, fh):
+    def write_type_struct(self):
         warn("TopLevel.type_struct: go away!")
 
 
@@ -146,24 +145,22 @@ class Class(MethodContext):
         if child.name in self.magic_methods.keys():
             self.magic_methods[child.name] = child.cname
 
-    def write_init_1(self, fh):
-        write = fh.write
+    def write_init_1(self):
         if not self.magic_methods['__new__']:
             write("    %(type)s.tp_new = PyType_GenericNew;\n" % self.__dict__)
         s = "    if (PyType_Ready(&%(type)s) < 0)\n        return;\n\n"
         write(s % self.__dict__)
 
-    def write_init_2(self, fh):
-        write = fh.write
+    def write_init_2(self):
         s = ('    Py_INCREF(&%(type)s);\n    PyModule_AddObject(m, "%(name)s",'
              ' (PyObject *)&%(type)s);\n\n'
              )
         write(s % self.__dict__)
 
-    def write_object_struct(self, fh):
-        fh.write("typedef struct {\n    PyObject_HEAD\n")
-        perhaps(fh.write, "    /* XXX define %s.%s objects here. */\n" % (self.module, self.name,), 1)
-        fh.write("\n} %s;\n\n" % self.obj)
+    def write_object_struct(self):
+        write("typedef struct {\n    PyObject_HEAD\n")
+        perhaps(write, "    /* XXX define %s.%s objects here. */\n" % (self.module, self.name,), 1)
+        write("\n} %s;\n\n" % self.obj)
 
     type_struct_elements = (
         #(type,  name,  default)
@@ -209,8 +206,7 @@ class Class(MethodContext):
         ('freefunc', 'tp_free', 0),
         )
 
-    def write_type_struct(self, fh):
-        write = fh.write
+    def write_type_struct(self):
         write("static PyTypeObject %s = {\n    PyObject_HEAD_INIT(NULL)\n" % self.type)
         d = self.__dict__.copy()
         d['doc'] = pydoc_format(self.doc)
@@ -335,12 +331,11 @@ class Function(object):
         self.cvars = [v for k, v in sorted(cvars.items())]
         log(self.cvars)
 
-    def write_decl(self, fh):
+    def write_decl(self):
         # does this ever vary?
-        fh.write('static PyObject *%s (PyObject*, PyObject*);\n' %(self.cname))
+        write('static PyObject *%s (PyObject*, PyObject*);\n' %(self.cname))
 
-    def write(self, fh):
-        write = fh.write
+    def write(self):
         perhaps(write, "/* %s (binds to %s.%s) */\n" %(self.cname,
                                                        self.classname or '<module %s>' % self.module,
                                                        self.name), 2)
@@ -409,13 +404,13 @@ class BlankMethod:
     def parseNode(self):
         pass
 
-    def write_decl(self, fh):
-        fh.write('%s %s (PyObject*, PyObject*);\n' %(self.type, self.cname))
+    def write_decl(self):
+        write('%s %s (PyObject*, PyObject*);\n' %(self.type, self.cname))
 
-    def write(self, fh):
-        fh.write('\n%s %s (PyObject *self, PyObject *args)\n{\n    ' %(self.type, self.cname))
-        fh.write('\n    '.join(self.code))
-        fh.write('\n}\n\n')
+    def write(self):
+        write('\n%s %s (PyObject *self, PyObject *args)\n{\n    ' %(self.type, self.cname))
+        write('\n    '.join(self.code))
+        write('\n}\n\n')
 
 
 def compile2ast(filepath):
@@ -443,7 +438,7 @@ def climb(tree, parent=None, context=None):
     return context
 
 
-def py2c(fn, output=sys.stdout):
+def py2c(fn):
     module_string, tree = compile2ast(fn)
     module_name = os.path.basename(fn).split('.', 1)[0]
     global pylines
@@ -453,36 +448,37 @@ def py2c(fn, output=sys.stdout):
     climb(tree, context=module)
 
     # parsed, now print
-
-    write('#include <Python.h>\n#include "structmember.h"\n\n')
+    pyversion = sys.version[:3]
+    write('#include <python%s/Python.h>\n#include "python%s/structmember.h"\n\n' %
+          (pyversion, pyversion))
     title('headers.')
 
     for c in module.classes:
-        c.write_object_struct(output)
+        c.write_object_struct()
 
     function_holders = ([module] + module.classes)
 
     for c in function_holders:
         for m in c.methods:
-            m.write_decl(output)
+            m.write_decl()
 
     title('functions and methods')
     for c in function_holders:
         for m in c.methods:
-            m.write(output)
+            m.write()
     title('method binding structs')
     for c in function_holders:
-        c.write_meth_bindings(output)
+        c.write_meth_bindings()
     title('type definition structs')
     for c in module.classes:
-        c.write_type_struct(output)
+        c.write_type_struct()
     title('initialisation.')
 
     # init
     write("#ifndef PyMODINIT_FUNC\n#define PyMODINIT_FUNC void\n#endif\n")
     write("PyMODINIT_FUNC\ninit%s(void)\n{\n    PyObject* m;\n" % module.name)
     for c in module.classes:
-        c.write_init_1(output)
+        c.write_init_1()
     write('    m = Py_InitModule3("%s", %s,\n'
           '        %s);\n\n' % (module.name,
                                   module.bindings_name,
@@ -490,7 +486,7 @@ def py2c(fn, output=sys.stdout):
     write('    if (m == NULL)\n        return;\n\n')
 
     for c in module.classes:
-        c.write_init_2(output)
+        c.write_init_2()
 
     write('\n}\n\n')
     return module
@@ -562,6 +558,13 @@ def main():
 
     (options, args) = parser.parse_args()
     fn = options.filename or args[0]
+    global OVERWRITE
+    OVERWRITE = options.force
+    global DEBUG, CONCAT_DECLS, COMMENTS
+    DEBUG = options.verbose
+    CONCAT_DECLS = options.concat
+    COMMENTS = options.comments
+
     if options.output == '-':
         output = sys.stdout
     else:
@@ -571,20 +574,21 @@ def main():
             ofn = fn[:-3] + '.c'
         else:
             ofn = fn + '.c'
-        if (os.path.exists(ofn) and not options.force and
+
+        if (os.path.exists(ofn) and not OVERWRITE and
             raw_input("%s exists, overwrite? [y/N]" % ofn).lower() != 'y'):
             print >>sys.stderr, ("won't overwrite %s, stopping.\n"
                                  "use -f to force" % ofn)
             sys.exit(1)
-        output = open(ofn, 'w')
+        try:
+            output = open_if_allowed(ofn)
+        except IOError, e:
+            print >>sys.stderr, e
+            print >>sys.stderr, "use -f to force yes to overwrite questions."
 
     global write
     write = output.write
 
-    global DEBUG, CONCAT_DECLS, COMMENTS
-    DEBUG = options.verbose
-    CONCAT_DECLS = options.concat
-    COMMENTS = options.comments
     x = py2c(fn, output)
     x.go()
     if options.setup_py:
