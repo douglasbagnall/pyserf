@@ -211,7 +211,7 @@ class Class(MethodContext):
                 else:
                     f1 = '    %s,' % val
             else:
-                f1 = '    %s,' % default
+                f1 = '    %s,' % (default or 'NULL')
             if len(f1) <= 50:
                 write("%-50s /*%17s */\n" % (f1, slot))
             else:
