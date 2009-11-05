@@ -160,7 +160,7 @@ class Class(MethodContext):
         ('', 'tp_name', '"%(py_fullname)s"'),
         ('', 'tp_basicsize', 'sizeof(%(obj)s)'),
         ('int', 'tp_itemsize', 0),
-        ('destructor', 'tp_dealloc', '%(__del__)s'),
+        ('destructor', 'tp_dealloc', '%(__dealloc__)s'),
         ('printfunc', 'tp_print', 0),
         ('getattrfunc', 'tp_getattr', 0),
         ('setattrfunc', 'tp_setattr', 0),
