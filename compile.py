@@ -19,7 +19,7 @@ os.system("cd %s && %s %s.py -s -f && python setup.py build" %
           (DIRECTORY, EXECUTABLE, NAME))
 
 
-sys.path.extend([ BUILD_DIR + x for x in os.listdir(BUILD_DIR) 
+sys.path.extend([ BUILD_DIR + x for x in os.listdir(BUILD_DIR)
                   if x.startswith('lib') ])
 
 print sys.path
@@ -46,5 +46,5 @@ if NAME == 'template':
     print testmod.bar.baz
     print x.baz(1)
     del x
-    
+
 
