@@ -108,7 +108,7 @@ class Class(MethodContext):
         self.obj = "%s_%s_object" % (self.module, self.name,)
         self.methods = []
 
-        self.magic_methods = {'__new__': 0,
+        self.magic_methods = {'__new__': 'PyType_GenericNew',
                               '__del__': 0,
                               '__init__': 0,
                               '__cmp__': 0,
