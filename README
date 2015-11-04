@@ -1,0 +1,7 @@
+Pyserf is a system for generating templates of C files that implement
+Python modules. It tries to write the boilerplate and let you do the
+interesting bits.
+
+I personally no longer use it.
+
+An MIT license applies. See LICENSE.
